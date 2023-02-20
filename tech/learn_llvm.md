@@ -41,7 +41,7 @@
   - unittest目录是以Google Test作为框架的单元测试套，主要用于测试单个函数及一些无法通过额外方式测试的独立功能
   - test目录是以LIT作为框架的回归测试套，主要用于测试特定特性或触发特定bug 的小段代码，用例所使用的语言与所测试的llvm部分有关，但都由llvm-lit来执行
 - 新建项目
-  - 作为附加项目与LLVM一起构建：`-DLLV M_EXTERNAL_PROJECTS=project_name -DLLVM_EXTERNAL_TINYLANG_SOURCE_DIR=path/to/project`
+  - 作为附加项目与LLVM一起构建：`-DLLVM_EXTERNAL_PROJECTS=project_name -DLLVM_EXTERNAL_XXX_SOURCE_DIR=path/to/project`
   - 作为独立项目构建：`-DLLVM_DIR=path/to/llvm/lib/cmake/llvm`
   - 项目不使用CMake进行组织，查找LLVM相关组件的库名：`llvm-config --libs modules_name`
 - 交叉编译
@@ -56,4 +56,14 @@
 
 ### 编译器结构
 
-- 
+- 抽象开看，编译器可分为两部分：
+  - 前端：负责特定语言相关的任务，对输入的源文件进行语义分析，输出其抽象语法树（AST）
+    - 词法分析器（Lexer）读取源文件并生成token
+    - 解析器（Parser）根据token创建AST
+    - 语义分析器向AST添加语义信息
+    - 代码生成器将AST转换为IR
+  - 后端：根据前端的结果创建优化过的机器码
+    - 在IR上执行与target无关的优化
+    - 为IR代码选择指令
+    - 进行指令执行、target相关的优化
+    - 产生汇编代码/目标文件
