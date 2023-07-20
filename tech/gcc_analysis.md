@@ -16,7 +16,7 @@
 
 ### 目录结构
 
-![gcc目录结构](https://raw.githubusercontent.com/Hugsy19/Picbed/master/tech/gcc_struct.jpg)
+![gcc目录结构](https://raw.githubusercontent.com/Hugsy19/Picbed/master/tech/gcc_struct.png)
 
 - config*：gcc编译配置相关
 - lib*/：通用库、语言库目录，如libgcc是与cpp语言相关的库
@@ -122,7 +122,7 @@ gcc中用名为`tree_node`的联合体来表示AST节点：
   
   - `tree_decl_minimal`是所有声明节点的基类，且声明节点间的继承关系如下图所示：
   
-    ![声明节点继承关系](https://raw.githubusercontent.com/Hugsy19/Picbed/master/tech/gcc_decl_node_rela.jpg)
+    ![声明节点继承关系](https://raw.githubusercontent.com/Hugsy19/Picbed/master/tech/gcc_decl_node_rela.png)
 
 ### 词法分析
 
@@ -161,7 +161,7 @@ struct GTY (()) c_token {
 ```
 
 * 所有的符号类型`cpp_ttype`定义在`libcpp/include/cpplib.h`，主要由OP宏和TK宏给出符号及其类型值
-* GCC对标识符类型进行了更详细的划分，具体定义在`gcc/c-parser.c`
+* gcc对标识符类型进行了更详细的划分，由`enum c_id_kind`定义
 * 所有的关键字标识定义在`gcc/c-family/c-common.h`中，由`enum rid`给出
 * pragma类型由`gcc/c-family/c-pragma.h`的`enum pragma_kid`给出
 
@@ -171,7 +171,9 @@ struct GTY (()) c_token {
 - `toplev`的声明和定义分别在`gcc/toplev.h`和`gcc/toplev.cc`
 - `toplev.main`函数里面先进行了一些初始化步骤，特别注意其中的使用的`lang_hook`对象，它定义在`gcc/langhooks.h`中，是gcc编译器前端为了支持多编程语言而设计的，它没有用到cpp的虚函数机制，而是巧妙地使用了宏定义来实现接口和继承
   - `gcc/langhooks_def.h`中定义了很多宏，这些宏与`lang_hook`对象的成员函数进行了绑定，其他对象要继承它并重写这些函数，只需要先用`#undef`取消原来的宏定义，再用`#define`重新和那个宏绑定
-- 执行到`toplev.main`中的`do_compile`函数，在来的其中的`compile_file`，这里调用`lang_hooks.parse_file`，来到了编译器的前端处理步骤，对于C语言，这个`parse_file`函数对应的宏在`gcc/c/c-objc-common.h`中被重定义，具体调用到的会是`gcc/c-family/c-opts.cc`中定义的`c_common_parse_file`
+- 执行到`toplev.main`中的`do_compile`函数，再来到其中的`compile_file`，这里调用`lang_hooks.parse_file`，来到了编译器的前端处理步骤，对于C语言，这个`parse_file`函数对应的宏在`gcc/c/c-objc-common.h`中被重定义，具体调用到的会是`gcc/c-family/c-opts.cc`中定义的`c_common_parse_file`，再来到`gcc/c/c-parser.cc`的`c_parse_file`
+- 从`c_parse_file -> c_parser_translation_unit -> c_parser_external_declaration -> c_parser_peek_token`的层层调用，会来到关键的词法分析步骤`c_lex_one_token`，其中会调用C家族语言共用的手写词法分析程序`gcc/c-family/c-lex.cc`
+- `c_lex_with_flags`是`c-lex.cc`中的关键函数，函数中会转而调用`gcc/libgcc/lex.cc`中的`_cpp_lex_token`，`_cpp_lex_token`转而调用了`_cpp_lex_direct`，这个才是最底层的C语言词法分析函数
 
 `gcc/gcc-main.cc`与`gcc/main.cc`的关系：
 
@@ -179,5 +181,121 @@ struct GTY (()) c_token {
 - `gcc/main.cc`包含gcc内部主函数,用于完成gcc的初始化工作和后续编译任务
 - `gcc/gcc-main.cc`生成的`gcc`可执行文件被用户调用,从而间接调用到`gcc/main.cc`中的主函数
 
+### 语法分析
 
+为了进行“最多提前预读四个词法符号的自顶向下的语法分析“推导过程，gcc将读取到的词法符号的相关信息保存在`struct c_parser`中，它在`gcc/c/c-parser.cc`中定义如下：
+
+```c
+struct GTY(()) c_parser {
+  /* The look-ahead tokens.  */
+  c_token * GTY((skip)) tokens;
+  /* Buffer for look-ahead tokens.  */
+  c_token tokens_buf[4]; // 预读词法符号
+  /* How many look-ahead tokens are available (0 - 4, or
+     more if parsing from pre-lexed tokens).  */
+  unsigned int tokens_avail; // 可用数目
+  /* Raw look-ahead tokens, used only for checking in Objective-C
+     whether '[[' starts attributes.  */
+  vec<c_token, va_gc> *raw_tokens;
+  /* The number of raw look-ahead tokens that have since been fully
+     lexed.  */
+  unsigned int raw_tokens_used;
+  /* True if a syntax error is being recovered from; false otherwise.
+     c_parser_error sets this flag.  It should clear this flag when
+     enough tokens have been consumed to recover from the error.  */
+  BOOL_BITFIELD error : 1;
+  /* True if we're processing a pragma, and shouldn't automatically
+     consume CPP_PRAGMA_EOL.  */
+  BOOL_BITFIELD in_pragma : 1;
+  /* True if we're parsing the outermost block of an if statement.  */
+  BOOL_BITFIELD in_if_block : 1;
+  /* True if we want to lex a translated, joined string (for an
+     initial #pragma pch_preprocess).  Otherwise the parser is
+     responsible for concatenating strings and translating to the
+     execution character set as needed.  */
+  BOOL_BITFIELD lex_joined_string : 1;
+  /* True if, when the parser is concatenating string literals, it
+     should translate them to the execution character set (false
+     inside attributes).  */
+  BOOL_BITFIELD translate_strings_p : 1;
+
+  /* Objective-C specific parser/lexer information.  */
+
+  /* True if we are in a context where the Objective-C "PQ" keywords
+     are considered keywords.  */
+  BOOL_BITFIELD objc_pq_context : 1;
+  /* True if we are parsing a (potential) Objective-C foreach
+     statement.  This is set to true after we parsed 'for (' and while
+     we wait for 'in' or ';' to decide if it's a standard C for loop or an
+     Objective-C foreach loop.  */
+  BOOL_BITFIELD objc_could_be_foreach_context : 1;
+  /* The following flag is needed to contextualize Objective-C lexical
+     analysis.  In some cases (e.g., 'int NSObject;'), it is
+     undesirable to bind an identifier to an Objective-C class, even
+     if a class with that name exists.  */
+  BOOL_BITFIELD objc_need_raw_identifier : 1;
+  /* Nonzero if we're processing a __transaction statement.  The value
+     is 1 | TM_STMT_ATTR_*.  */
+  unsigned int in_transaction : 4;
+  /* True if we are in a context where the Objective-C "Property attribute"
+     keywords are valid.  */
+  BOOL_BITFIELD objc_property_attr_context : 1;
+
+  /* Whether we have just seen/constructed a string-literal.  Set when
+     returning a string-literal from c_parser_string_literal.  Reset
+     in consume_token.  Useful when we get a parse error and see an
+     unknown token, which could have been a string-literal constant
+     macro.  */
+  BOOL_BITFIELD seen_string_literal : 1;
+
+  /* Location of the last consumed token.  */
+  location_t last_token_location;
+};
+```
+
+gcc语法分析的入口函数为`gcc/c/c-parser.cc`中的`c_parse_file`:
+
+```c
+void
+c_parse_file (void)
+{
+  /* Use local storage to begin.  If the first token is a pragma, parse it.
+     If it is #pragma GCC pch_preprocess, then this will load a PCH file
+     which will cause garbage collection.  */
+  c_parser tparser;
+
+  memset (&tparser, 0, sizeof tparser);
+  tparser.translate_strings_p = true;
+  tparser.tokens = &tparser.tokens_buf[0];
+  the_parser = &tparser;
+
+  if (c_parser_peek_token (&tparser)->pragma_kind == PRAGMA_GCC_PCH_PREPROCESS) // 预读一个词法符号，判断是否为预处理符号
+    c_parser_pragma_pch_preprocess (&tparser); // 进行预处理
+  else
+    c_common_no_more_pch ();
+
+  the_parser = ggc_alloc<c_parser> ();
+  *the_parser = tparser;
+  if (tparser.tokens == &tparser.tokens_buf[0])
+    the_parser->tokens = &the_parser->tokens_buf[0];
+
+  /* Initialize EH, if we've been told to do so.  */
+  if (flag_exceptions)
+    using_eh_for_cleanups ();
+
+  c_parser_translation_unit (the_parser); // 进行语法推导
+  the_parser = NULL;
+}
+```
+
+gcc编译的最大单位是源文件，统称为编译单元（translation_unit），其语法分析过程由以下函数完成：
+
+- `c_parser_translation_unit`：进行整个编译单元的语法分析
+- `c_parser_external_declaration`：进行外部变量的语法分析，如全局变量、函数声明/定义语句等
+- `c_parser_declaration_or_fndef`：进行函数声明/定义的语法分析
+- `c_parser_declarator`：进行声明说明符的语法分析
+
+## 从AST/GENERIC到GIMPLE
+
+### GIMPLE
 
