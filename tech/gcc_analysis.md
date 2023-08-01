@@ -290,7 +290,7 @@ c_parse_file (void)
 
 gcc编译的最大单位是源文件，统称为编译单元（translation_unit），其语法分析过程由以下函数完成：
 
-- `c_parser_translation_unit`：进行整个编译单元的语法分析
+- `c_parser_translation_unit`：解析整个编译单元,并为每个外部声明在全局符号表中为其生成对应的函数/变量节点
 - `c_parser_external_declaration`：进行外部变量的语法分析，如全局变量、函数声明/定义语句等
 - `c_parser_declaration_or_fndef`：进行函数声明/定义的语法分析
 - `c_parser_declarator`：进行声明说明符的语法分析
@@ -298,4 +298,100 @@ gcc编译的最大单位是源文件，统称为编译单元（translation_unit�
 ## 从AST/GENERIC到GIMPLE
 
 ### GIMPLE
+
+为了处理不同的前端语言及其相应的AST/GENERIC，gcc引入了名为GIMPLE的与前端语言无关的中间表示：
+
+- AST是树状结构，GIMPLE则是线性的中间表示序列
+- GIMPLE中通过引入临时变量保存中间结果，将AST表达式才分为不超过三个操作数的元组
+- AST中if-else等控制结构，在GIMPLE中被转换为条件跳转语句
+
+AST转为GIMPLE的过程中，会先后经历高级GIMPLE（High-Level GIMPLE）和低级GIMPLE（Low-Level GIMPLE）两个阶段：
+
+- 高级GIMPLE中会有`GIMPLE_BIND`等表示作用域的语句
+- 经过`pass_lower_cf`后高级GIMPLE即被转换为了低级，`GIMPLE_BIND`、`GIMPLE_TRY`等语句都会被移除
+
+如对于以下代码：
+
+```c
+int main() {
+    int i = 0;
+    int sum = 0;
+    for (i; i < 10; i++) {
+        sum = sum + i;
+    }
+    return sum;
+}
+```
+
+使用`-fdump-tree-gimple-raw`选项编译，得到的高级GIMPLE内容如下：
+
+```
+int main ()
+gimple_bind <
+  int D.2747;
+
+  gimple_bind <
+    int i;
+    int sum;
+
+    gimple_assign <integer_cst, i, 0, NULL, NULL>
+    gimple_assign <integer_cst, sum, 0, NULL, NULL>
+    gimple_goto <<D.2745>>
+    gimple_label <<D.2744>>
+    gimple_assign <plus_expr, sum, sum, i, NULL>
+    gimple_assign <plus_expr, i, i, 1, NULL>
+    gimple_label <<D.2745>>
+    gimple_cond <le_expr, i, 9, <D.2744>, <D.2742>>
+    gimple_label <<D.2742>>
+    gimple_assign <var_decl, D.2747, sum, NULL, NULL>
+    gimple_return <D.2747>
+  >
+  gimple_assign <integer_cst, D.2747, 0, NULL, NULL>
+  gimple_return <D.2747>
+>
+```
+
+用`-fdumo-tree-lower-raw`得到的低级GIMPLE则为：
+
+```
+;; Function main (main, funcdef_no=0, decl_uid=2738, cgraph_uid=1, symbol_order=0)
+
+int main ()
+{
+  int sum;
+  int i;
+  int D.2747;
+
+  gimple_assign <integer_cst, i, 0, NULL, NULL>
+  gimple_assign <integer_cst, sum, 0, NULL, NULL>
+  gimple_goto <<D.2745>>
+  gimple_label <<D.2744>>
+  gimple_assign <plus_expr, sum, sum, i, NULL>
+  gimple_assign <plus_expr, i, i, 1, NULL>
+  gimple_label <<D.2745>>
+  gimple_cond <le_expr, i, 9, <D.2744>, <D.2742>>
+  gimple_label <<D.2742>>
+  gimple_assign <var_decl, D.2747, sum, NULL, NULL>
+  gimple_goto <<D.2748>>
+  gimple_assign <integer_cst, D.2747, 0, NULL, NULL>
+  gimple_goto <<D.2748>>
+  gimple_label <<D.2748>>
+  gimple_return <D.2747>
+}
+```
+
+`gcc/gimple.def`中用格式为`DEFGSCODE(GIMPLE_symbol, printable name, GSS_symbol)`的宏对各种GIMPLE语句进行了声明：
+
+- `GIMPLE_symbol`：操作类型码
+- `printable name`：打印名称
+- `GSS_symbol`：由`gcc/gsstruct.def`中的`DEFGSSTRUCT`宏定义，用以计算GIMPLE语句存储结构中的偏移地址
+
+程序编译过程中，GIMPLE化过程中的函数调用栈如下：
+
+- `compile_file`中的`lang_hooks.parse_file`执行完毕后，来到下面的`if (!in_lto_p)`判断，执行其中的`symtab->finalize_compilation_unit()`
+- `symtab`为定义在`gcc/cgraph.h`中的类型名为`symbol_table *`的全局符号表，其中记录了整个编译过程中产生的所有函数和符号，函数的节点信息在其中用`cgraph_node`结构体表示，变量则用`varpool_node`结构体表示
+- `finalize_compilation_unit`被定义在`gcc/cgraphunit.cc`中，其中的`analyze_functions`将遍历符号表中的所有节点，对于其中函数节点，通过`cnode->analyze()`完成其GIMPLE化过程，对变量节点则用`vnode->analyze()`进行对齐操作
+- `cgraph_node::analyze`也定义在`gcc/cgraphunit.cc`中，高端GIMPLE化过程通过调用`gcc/gimplify.cc`中的定义的`gimplify_function_tree`来实现，低端GIMPLE化则通过执行名为`all_lowering_passes`的pass来完成
+
+
 
