@@ -308,7 +308,12 @@ gcc编译的最大单位是源文件，统称为编译单元（translation_unit�
 AST转为GIMPLE的过程中，会先后经历高级GIMPLE（High-Level GIMPLE）和低级GIMPLE（Low-Level GIMPLE）两个阶段：
 
 - 高级GIMPLE中会有`GIMPLE_BIND`等表示作用域的语句
-- 经过`pass_lower_cf`后高级GIMPLE即被转换为了低级，`GIMPLE_BIND`、`GIMPLE_TRY`等语句都会被移除
+- 经过`pass_lower_cf`后，对高级GIMPLE进行数据、代码、返回语句合并，即将其转换为了低级GIMPLE，从而有利于生成更规整的后端代码，其中：
+  - 词法范围被移除，如`GIMPLE_BIND`
+  - if语句都被转化成then和else两个分支
+  - `GIMPLE_TRY`、`GIMPLE_CATCH`语句都被转换为异常控制流
+  - 多个相同的`GIMPLE_RETURN`语句被合并到一起
+
 
 如对于以下代码：
 
@@ -380,18 +385,461 @@ int main ()
 }
 ```
 
+### 生成GIMPLE
+
 `gcc/gimple.def`中用格式为`DEFGSCODE(GIMPLE_symbol, printable name, GSS_symbol)`的宏对各种GIMPLE语句进行了声明：
 
 - `GIMPLE_symbol`：操作类型码
 - `printable name`：打印名称
 - `GSS_symbol`：由`gcc/gsstruct.def`中的`DEFGSSTRUCT`宏定义，用以计算GIMPLE语句存储结构中的偏移地址
 
+`gcc/gimple.h`中定义的`struct gimple`是所有GIMPLE存储结构体的基类：
+
+```c
+struct GTY((desc ("gimple_statement_structure (&%h)"), tag ("GSS_BASE"),
+	    chain_next ("%h.next"), variable_size))
+  gimple
+{
+  /* [ WORD 1 ]
+     Main identifying code for a tuple.  */
+  ENUM_BITFIELD(gimple_code) code : 8;
+
+  /* Nonzero if a warning should not be emitted on this tuple.  */
+  unsigned int no_warning	: 1;
+
+  /* Nonzero if this tuple has been visited.  Passes are responsible
+     for clearing this bit before using it.  */
+  unsigned int visited		: 1;
+
+  /* Nonzero if this tuple represents a non-temporal move.  */
+  unsigned int nontemporal_move	: 1;
+
+  /* Pass local flags.  These flags are free for any pass to use as
+     they see fit.  Passes should not assume that these flags contain
+     any useful value when the pass starts.  Any initial state that
+     the pass requires should be set on entry to the pass.  See
+     gimple_set_plf and gimple_plf for usage.  */
+  unsigned int plf		: 2;
+
+  /* Nonzero if this statement has been modified and needs to have its
+     operands rescanned.  */
+  unsigned modified 		: 1;
+
+  /* Nonzero if this statement contains volatile operands.  */
+  unsigned has_volatile_ops 	: 1;
+
+  /* Padding to get subcode to 16 bit alignment.  */
+  unsigned pad			: 1;
+
+  /* The SUBCODE field can be used for tuple-specific flags for tuples
+     that do not require subcodes.  Note that SUBCODE should be at
+     least as wide as tree codes, as several tuples store tree codes
+     in there.  */
+  unsigned int subcode		: 16;
+
+  /* UID of this statement.  This is used by passes that want to
+     assign IDs to statements.  It must be assigned and used by each
+     pass.  By default it should be assumed to contain garbage.  */
+  unsigned uid;
+
+  /* [ WORD 2 ]
+     Locus information for debug info.  */
+  location_t location;
+
+  /* Number of operands in this tuple.  */
+  unsigned num_ops;
+
+  /* [ WORD 3 ]
+     Basic block holding this statement.  */
+  basic_block bb;
+
+  /* [ WORD 4-5 ]
+     Linked lists of gimple statements.  The next pointers form
+     a NULL terminated list, the prev pointers are a cyclic list.
+     A gimple statement is hence also a double-ended list of
+     statements, with the pointer itself being the first element,
+     and the prev pointer being the last.  */
+  gimple *next;
+  gimple *GTY((skip)) prev;
+};
+```
+
+不同类型的GIMPLE语句使用不同的结构体进行存储，`gcc/gsstrrut.def`中用`DEFGSSTRUCT(GSS enumeration value, structure name, has-tree-operands)`宏给出了所有`GSS_symbol`对应的结构体类型。
+
 程序编译过程中，GIMPLE化过程中的函数调用栈如下：
 
 - `compile_file`中的`lang_hooks.parse_file`执行完毕后，来到下面的`if (!in_lto_p)`判断，执行其中的`symtab->finalize_compilation_unit()`
 - `symtab`为定义在`gcc/cgraph.h`中的类型名为`symbol_table *`的全局符号表，其中记录了整个编译过程中产生的所有函数和符号，函数的节点信息在其中用`cgraph_node`结构体表示，变量则用`varpool_node`结构体表示
 - `finalize_compilation_unit`被定义在`gcc/cgraphunit.cc`中，其中的`analyze_functions`将遍历符号表中的所有节点，对于其中函数节点，通过`cnode->analyze()`完成其GIMPLE化过程，对变量节点则用`vnode->analyze()`进行对齐操作
-- `cgraph_node::analyze`也定义在`gcc/cgraphunit.cc`中，高端GIMPLE化过程通过调用`gcc/gimplify.cc`中的定义的`gimplify_function_tree`来实现，低端GIMPLE化则通过执行名为`all_lowering_passes`的pass来完成
+- `cgraph_node::analyze`也定义在`gcc/cgraphunit.cc`中，高端GIMPLE化过程通过调用`gcc/gimplify.cc`中的定义的`gimplify_function_tree`来实现，低端GIMPLE化则通过`execute_pass_list (cfun, g->get_passes ()->all_lowering_passes); `,执行名为`all_lowering_passes`的pass来完成
 
+### GIMPLE Pass
 
+为了便于管理，gcc将诸如GIMPLE低端化、GIMPLE优化及RTL生成等优化处理过程都组织为Pass，每个Pass作为一个单独的处理过程完成一种特定的处理，然后将其输出结果作为下一个Pass的输入。
+
+Pass的核心数据结构定义在`gcc/tree-pass.h`中：
+
+```c
+struct pass_data
+{
+  /* Optimization pass type.  */
+  enum opt_pass_type type; // Pass类型
+
+  /* Terse name of the pass used as a fragment of the dump file
+     name.  If the name starts with a star, no dump happens. */
+  const char *name;
+
+  /* The -fopt-info optimization group flags as defined in dumpfile.h. */
+  optgroup_flags_t optinfo_flags;
+
+  /* The timevar id associated with this pass.  */
+  /* ??? Ideally would be dynamically assigned.  */
+  timevar_id_t tv_id;
+
+  /* Sets of properties input and output from this pass.  */
+  unsigned int properties_required; // 执行Pass需要满足的条件
+  unsigned int properties_provided; // 执行Pass所提供的属性
+  unsigned int properties_destroyed; // 执行Pass所破坏的属性
+
+  /* Flags indicating common sets things to do before and after.  */
+  unsigned int todo_flags_start;  // 执行Pass前需要执行的标准动作
+  unsigned int todo_flags_finish; // 执后Pass前需要执行的标准动作
+};
+```
+
+Pass共有四大类：
+
+- GIMPLE_PASS：以GIMPLE为处理对象
+- RTL_PASS：以RTL为处理对象
+- SIMPLE_IPA_PASS：以GIMPLE为处理对象，进行**过程间分析（IPA，Inter-Procedural Analysis）**，及函数间变量的传递及参数传递
+- IPA_PASS：同上
+
+执行Pass的各种条件/属性由`gcc/tree-pass.h`中以`PROP_`开头的宏定义，执行Pass前后所要执行的标准动作则由`TODO_`开头的宏定义。
+
+`opt_pass`继承自`pass_data`：
+
+```c++
+class opt_pass : public pass_data
+{
+public:
+  virtual ~opt_pass () { }
+
+  /* Create a copy of this pass.
+
+     Passes that can have multiple instances must provide their own
+     implementation of this, to ensure that any sharing of state between
+     this instance and the copy is "wired up" correctly.
+
+     The default implementation prints an error message and aborts.  */
+  virtual opt_pass *clone ();
+  virtual void set_pass_param (unsigned int, bool);
+
+  /* This pass and all sub-passes are executed only if the function returns
+     true.  The default implementation returns true.  */
+  virtual bool gate (function *fun);
+
+  /* This is the code to run.  If this is not overridden, then there should
+     be sub-passes otherwise this pass does nothing.
+     The return value contains TODOs to execute in addition to those in
+     TODO_flags_finish.   */
+  virtual unsigned int execute (function *fun);
+
+protected:
+  opt_pass (const pass_data&, gcc::context *);
+
+public:
+  /* A list of sub-passes to run, dependent on gate predicate.  */
+  opt_pass *sub;
+
+  /* Next in the list of passes to run, independent of gate predicate.  */
+  opt_pass *next;
+
+  /* Static pass number, used as a fragment of the dump file name.  */
+  int static_pass_number;
+
+protected:
+  gcc::context *m_ctxt;
+};
+```
+
+各种不同的Pass通过其中的`next`字段组成链表，且每个Pass的子Pass也可以将不同的Pass组织成子链表。`gcc/passses.cc`中定义的`INSERT_PASSES_AFTER(PASS)`、`NEXT_PASS (PASS)`等宏可将Pass快速得组织起来，且gcc中预定义的所有Pass都通过这些宏组织并写在了`gcc/passes.def`中，其中GIMPLE低端化相关的pass链表内容如下：
+
+```
+INSERT_PASSES_AFTER (all_lowering_passes)
+  NEXT_PASS (pass_warn_unused_result); // 处理warn_unused_result选项
+  NEXT_PASS (pass_diagnose_omp_blocks);
+  NEXT_PASS (pass_diagnose_tm_blocks);
+  NEXT_PASS (pass_omp_oacc_kernels_decompose);
+  NEXT_PASS (pass_lower_omp);
+  NEXT_PASS (pass_lower_cf); // gimple低端化的主要内容（去除gbind节点,将所有greturn节点放到函数最后）
+  NEXT_PASS (pass_lower_tm);
+  NEXT_PASS (pass_refactor_eh);
+  NEXT_PASS (pass_lower_eh);
+  NEXT_PASS (pass_coroutine_lower_builtins);
+  NEXT_PASS (pass_build_cfg); // 将低端化后的指令序列转换为函数的CFG
+  NEXT_PASS (pass_warn_function_return);
+  NEXT_PASS (pass_coroutine_early_expand_ifns);
+  NEXT_PASS (pass_expand_omp);
+  NEXT_PASS (pass_build_cgraph_edges); // 构建函数间的调用关系图（Call Graph）
+TERMINATE_PASS_LIST (all_lowering_passes)
+```
+
+- pass_lower_cf：定义在`gcc/gimple-low.cc`中，主要的功能函数为`lower_function_body`
+- pass_build_cfg：定义在`gcc/tree-cfg.cc`中，主要的功能函数为`build_gimple_cfg`
+- pass_build_cgraph_edges：定义在`gcc/cgraphbuild.cc`
+
+执行Pass时，函数的信息都保存在全局变量`struct function *cfun`中，其数据类型`function`定义在`gcc/function.h`。
+
+#### 控制流图（CFG）
+
+**控制流图（Control Flow Graph, CFG）**是GIMPLE处理中的重要概念，其描述了函数中的处理流程，在一个CFG中，节点为程序的基本块（Basic Block），边则为借本块之间的跳转关系。gcc中的`pass_build_cfg`过程会对函数的GIMPLE序列进行分析，完成基本块的划分，并根据GIMPLE语义构造基本块之间的跳转关系。
+
+用以保存CFG的数据类型为`gcc/cfg.h`中定义的`control_flow_graph`：
+
+```c
+struct GTY(()) control_flow_graph {
+  /* Block pointers for the exit and entry of a function.
+     These are always the head and tail of the basic block list.  */
+  basic_block x_entry_block_ptr; // 函数入口块
+  basic_block x_exit_block_ptr; // 函数出口块
+
+  /* Index by basic block number, get basic block struct info.  */
+  vec<basic_block, va_gc> *x_basic_block_info; // BB块信息
+
+  /* Number of basic blocks in this flow graph.  */
+  int x_n_basic_blocks; // BB块个数
+
+  /* Number of edges in this flow graph.  */
+  int x_n_edges; // 边条数
+
+  /* The first free basic block number.  */
+  int x_last_basic_block;
+
+  /* UIDs for LABEL_DECLs.  */
+  int last_label_uid;
+
+  /* Mapping of labels to their associated blocks.  At present
+     only used for the gimple CFG.  */
+  vec<basic_block, va_gc> *x_label_to_block_map;
+
+  enum profile_status_d x_profile_status;
+
+  /* Whether the dominators and the postdominators are available.  */
+  enum dom_state x_dom_computed[2];
+
+  /* Number of basic blocks in the dominance tree.  */
+  unsigned x_n_bbs_in_dom_tree[2];
+
+  /* Maximal number of entities in the single jumptable.  Used to estimate
+     final flowgraph size.  */
+  int max_jumptable_ents;
+
+  /* Maximal count of BB in function.  */
+  profile_count count_max;
+
+  /* Dynamically allocated edge/bb flags.  */
+  int edge_flags_allocated;
+  int bb_flags_allocated;
+};
+```
+
+且`build_gimple_cfg`的具体实现如下:
+
+```c
+static void
+build_gimple_cfg (gimple_seq seq)
+{
+  /* Register specific gimple functions.  */
+  gimple_register_cfg_hooks ();
+
+  memset ((void *) &cfg_stats, 0, sizeof (cfg_stats));
+
+  init_empty_tree_cfg (); // 初始化cfg指针
+
+  make_blocks (seq); // 创建基本块
+
+  /* Make sure there is always at least one block, even if it's empty.  */
+  if (n_basic_blocks_for_fn (cfun) == NUM_FIXED_BLOCKS)
+    create_empty_bb (ENTRY_BLOCK_PTR_FOR_FN (cfun));
+
+  /* Adjust the size of the array.  */
+  if (basic_block_info_for_fn (cfun)->length ()
+      < (size_t) n_basic_blocks_for_fn (cfun))
+    vec_safe_grow_cleared (basic_block_info_for_fn (cfun),
+			   n_basic_blocks_for_fn (cfun));
+
+  /* To speed up statement iterator walks, we first purge dead labels.  */
+  cleanup_dead_labels ();
+
+  /* Group case nodes to reduce the number of edges.
+     We do this after cleaning up dead labels because otherwise we miss
+     a lot of obvious case merging opportunities.  */
+  group_case_labels ();
+
+  /* Create the edges of the flowgraph.  */
+  discriminator_per_locus = new hash_table<locus_discrim_hasher> (13);
+  make_edges (); // 创建边
+  assign_discriminators ();
+  cleanup_dead_labels ();
+  delete discriminator_per_locus;
+  discriminator_per_locus = NULL;
+}
+```
+
+- CFG初始化过程组要包括构造函数初始块（Entry Block）和出口块（Exit Block），并将其链接起来，同时初始化一些BB块、边的数目等信息
+- 创建BB块的过程中：
+  - 一般一个`GIMPLE_LABLE`语句就对应一个BB块的开始，连续的多个`GIMPLE_LABLE`语句可进行合并
+  - 出现`GIMPLE_COND`、`GIMPLE_SWITCH`、`GIMPLE_GOTO`、`GIMPLE_RETURN`等改变控制流的语句，则标志着一个BB块的结束
+
+对于前面的C程序，生成的CFG dump文件如下：
+
+```
+;; Function main (main, funcdef_no=0, decl_uid=2738, cgraph_uid=1, symbol_order=0)
+
+Removing basic block 6
+;; 2 loops found
+;;
+;; Loop 0
+;;  header 0, latch 1
+;;  depth 0, outer -1
+;;  nodes: 0 1 2 3 4 5 6
+;;
+;; Loop 1
+;;  header 4, latch 3
+;;  depth 1, outer 0
+;;  nodes: 4 3
+;; 2 succs { 4 }
+;; 3 succs { 4 }
+;; 4 succs { 3 5 }
+;; 5 succs { 6 }
+;; 6 succs { 1 }
+int main ()
+{
+  int sum;
+  int i;
+  int D.2747;
+
+  <bb 2> :
+  i = 0;
+  sum = 0;
+  goto <bb 4>; [INV]
+
+  <bb 3> :
+  sum = sum + i;
+  i = i + 1;
+
+  <bb 4> :
+  if (i <= 9)
+    goto <bb 3>; [INV]
+  else
+    goto <bb 5>; [INV]
+
+  <bb 5> :
+  D.2747 = sum;
+
+  <bb 6> :
+<L3>:
+  return D.2747;
+
+}
+```
+
+#### 调用关系图（Cgraph）
+
+**调用关系图（Call Graph）**描述了程序中各函数之间的调用关系，该关系一般用有向图（Directed Graph）进行描述，图中的节点代表函数，有向边则代表其间的调用关系。
+
+其相关的数据结构`cgraph_node`和`cgraph_edge`都定义在`gcc/cgraph.h`。
+
+### IPA Pass
+
+`finalize_compilation_unit`中`analyze_functions`完成程序的gimplify后，之后的编译过程在`symbol_table::compile`中完成，其中不仅包含IPA Pass的执行，还有GIMPLE到RTL的转换，以及RTL到最终汇编代码的输出。
+
+IPA Pass包含了all_small_ipa_passes、all_regular_ipa_passes以及all_late_ipa_passes，其作用是过程间优化，不针对具体的函数。
+
+#### 静态单赋值（SSA）
+
+**静态单赋值（Static Single Assignment）**指的是每个变量都只能被赋值一次，gcc中由all_small_ipa_passes中名为pass_build_ssa_passes的子Pass来完成这一过程，将GIMPLE转换为SSA形式后，在此基础上还会进行一些基本优化。
+
+SSA有几个相关的概念：
+
+- dominance frontier：指函数中BB块之间的控制流程关系，对两个BB块A和B，如果从初始块开始所有到B的流程都需要进行A，则称A为B的dominance frontier（支配前导块）
+
+- immediate dominator：如果A是离B最近的dominance frontier，则称A是B的immediate dominator
+
+- PHI（$\phi$）节点：SSA形式要求每个变量只能被赋值一次，当遇到如下所示的情况时：
+
+  ```c
+  a = 1;
+  if (v < 10)
+      a = 2;
+  b = a;
+  ```
+
+  满足if条件的情况下，a将被二次赋值，为了满足SSA约束，就要把两个a进行区分，同时在给b赋值时，通过一个PHI节点：
+
+  ```c
+  a1 = 1;
+  if (v < 10)
+      a2 = 2;
+  b = PHI(a1, a2);
+  ```
+
+​	PHI节点会根据控制流是从哪个BB块到达的，来决定使用哪个版本的a
+
+该Pass在`gcc/tree-into-ssa.cc`中实现，主要包含以下步骤：
+
+- 计算dominance frontier和immediate dominator，并根据需要插入PHI节点
+- 查找并标记所有变量定义的块信息
+- 在dominance frontier插入PHI节点
+- 重命名块和语句
+
+对前面的程序，生成的SSA dump如下：
+
+```
+;; Function main (main, funcdef_no=0, decl_uid=2738, cgraph_uid=1, symbol_order=0)
+
+int main ()
+{
+  int sum;
+  int i;
+  int D.2747;
+  int _5;
+
+  <bb 2> :
+  i_3 = 0;
+  sum_4 = 0;
+  goto <bb 4>; [INV]
+
+  <bb 3> :
+  sum_7 = sum_2 + i_1;
+  i_8 = i_1 + 1;
+
+  <bb 4> :
+  # i_1 = PHI <i_3(2), i_8(3)>
+  # sum_2 = PHI <sum_4(2), sum_7(3)>
+  if (i_1 <= 9)
+    goto <bb 3>; [INV]
+  else
+    goto <bb 5>; [INV]
+
+  <bb 5> :
+  _5 = sum_2;
+
+  <bb 6> :
+<L3>:
+  return _5;
+
+}
+```
+
+## 从GIMPLE到RTL
+
+### RTL
+
+为了将与机器无关的GIMPLE中间表示转换为与机器相关的汇编语言，GCC中引入了寄存器传输语言RTL，它采用了类型LISP语言的列表形式，描述了每一条指令的语义动作，根据其作用可分为两大类：
+
+- 内部格式
+- 文本格式
+
+### 机器描述文件
 
