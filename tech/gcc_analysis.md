@@ -838,8 +838,12 @@ int main ()
 
 为了将与机器无关的GIMPLE中间表示转换为与机器相关的汇编语言，GCC中引入了寄存器传输语言RTL，它采用了类型LISP语言的列表形式，描述了每一条指令的语义动作，根据其作用可分为两大类：
 
-- 内部格式
-- 文本格式
+- 内部格式（Internal Form）：通常由GIMPLE转换而成，是程序代码的另一种中间表示形式，可称为IR-RTL
+- 文本格式（Textual Form）：用于机器描述文件（Machine Description）中，进行机器描述时所采用的RTL形式，可称为MD-RTL
+
+GIMPLE到IR-RTL的转换过程中，会按gcc设计时定义的与机器无关的规则，转换为具有某个**标准模板名称（Standard Pattern Name，SPN）**对应的RTL，MD-RTL中某个标准模板对应的指令模板则是与机器相关的。通过将GIMPLE_CODE和MD-RTL中具有SPN的指令模板进行匹配，就实现了机器无关的GIMPLE表示到机器相关的RTL之间的转换。
+
+
 
 ### 机器描述文件
 
