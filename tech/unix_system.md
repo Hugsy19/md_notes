@@ -123,13 +123,25 @@ C语言的ANSI（美国国家标准协会）标准在1989年得到批准，此�
 
 ### IEEE POSIX
 
-POSIX（Portable Operating System Interface）最初是由IEEE（电气电子工程师学会）为提升应用程序在各种UNIX环境间的可移植性而制定的标准族，编号为1003.1-1988，后面被扩展成很多标记为1003的标准及草案。1003.1标准说明的只是接口而非实现，所以其中不区分系统调用和库函数，所有接口统称为函数。后面正式的版本1003.1-1990递交给了ISO作为国际标准，通常被称为**POSIX.1**。
+POSIX（Portable Operating System Interface）最初是由IEEE（电气电子工程师学会）为提升应用程序在各种UNIX环境间的可移植性而制定的标准族，编号为1003.1-1988，后面被扩展成很多标记为1003的标准及草案。1003.1标准说明的只是接口而非实现，所以其中不区分系统调用和库函数，所有接口统称为函数。后面正式的版本1003.1-1990递交给了ISO作为国际标准，通常被称为**POSIX.1**，POSIX.1包含了ISO C标准库函数。
 
 ### Single UNIX Specification
 
-### 系统实现
+SUS（Single UNIX Specification）是POSIX.1标准的一个超集，其定义了一些附加接口扩展了POSIX.1规范提供的功能，POSIX.1则相当于是其基本规范部分。SUS是Open Group的出版物，且Open Group是两个工业社团X/Open和开放系统软件基金会（Open System Software Foundation，OSF）合并构成的，POSIX.1中的XSI（X/Open System Interface）选项描述了可选的接口，也定义了遵循XSI的实现必须支持POSIX.1可选部分，只有遵循XSI的实现才能称为UNIX系统。当前较新的规范有2010年发布的SUSv4。
 
 ### 限制与选项
+
+各类UNIX系统上运行的程序，在可移植性方面存在以下限制：
+
+- 编译时限制：头文件列出
+- 文件/目录无关的运行时限制：`sysconf`函数获取
+- 文件/目录相关的运行时限制：`pathconf`、`fpathconf`函数获取
+
+如ISO C定义的所有编译时限制都列在头文件`<limits.h>`中，主要是说明给定的系统的中整型数据的范围。运行时限制则可以通过`<unistd.h>`中定义的以下三个函数之一获得：
+
+- `long sysconf(int name);`：`name`为以`_SC_`开头的常量
+- `long pathconf(const char *pathname, int name);`：`name`为以`_PC_`开头的常量，下同
+- `long fpathconf(int fd, int name);`
 
 ## 文件I/O
 
