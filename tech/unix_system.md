@@ -145,5 +145,69 @@ SUS（Single UNIX Specification）是POSIX.1标准的一个超集，其定义了
 
 ## 文件I/O
 
+`open`、`read`、`write`、`lseek`、`close`这些文件I/O函数是不带缓冲的I/O（unbuffered），它们是POSIX.1和SUS的组成部分。
+
+### 文件描述符
+
+对内核，所有打开的文件都通过文件描述符来引用，其为一个非负整数，范围是`0~OPEN_MAX-1`。按照惯例，0-2都已被标准化：
+
+- 0：标准输入`STDIN_FILLNO`
+- 1：标准输出`STDOUT_FILENO`
+- 2：标准错误`STERR_FILENO`
+
+### open、openat
+
+定义在`<fcntl.h>`，打开或创建一个文件，成功则返回当前最小且未用的文件描述符，出错返回`-1`：
+
+- `int open(const char *path, int oflag, .../* mode_t mode */);`
+- `int openat(int fd, const char *path, int oflag, .../* mode_t mode */);`
+
+`path`为文件路径名，`oflag`可为内置常量之间的或运算，其中必须指定的常量有：
+
+- `O_RDONLY`：只读
+- `O_WRONLY`：只写
+- `O_RDWR`：读写
+- `O_EXEC`：只执行
+- `O_SEARCH`：只搜索（对目录）
+
+其他可选的选项常用的有：
+
+- `O_APPEND`：追加
+- `O_CREAT`：创建，此时要用可变参数`mode`指明访问权限
+- `O_TRUNC`：截断
+
+当`path`为绝对路径时，`openat`相当于`open`；`path`为相对路径，`fd`参数就指出了相对路径名在文件系统中的开始路径，是该路径的文件描述符，且当`fd`为特殊值`AT_FDCWD`时，当前工作路径即为开始路径。
+
+`openat`在新增于POSIX.1最新版，是为了解决：
+
+1. 线程可以使用相对路径打开文件，而非限定于工作目录
+2. 避免time-of-check-to-time-of-use（TOCTTOU）错误
+
+### creat
+
+定义在`<fcntl.h>`，创建一个新文件，且只能以只写的方式打开并创建文件：
+
+- `int creat(const char *path, mode_t mode);`
+
+其等效于：
+
+- `int open(path, O_WRONLY | O_CREAT | O_TRUNC, mode);`
+
+### close
+
+定义在`<unistd.h>`，关闭一个打开的文件：
+
+- `int close(int fd);`
+
+一个进程终止时，内核会自动关闭其打开的所有文件，由此一般都不显式调用此函数关闭文件。
+
+### lseek
+
+
+
+
+
+
+
 
 
