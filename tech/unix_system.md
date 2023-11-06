@@ -185,7 +185,7 @@ SUS（Single UNIX Specification）是POSIX.1标准的一个超集，其定义了
 
 ### creat
 
-定义在`<fcntl.h>`，创建一个新文件，且只能以只写的方式打开并创建文件：
+定义在`<fcntl.h>`，创建一个新文件，且只能以只写的方式打开并创建文件，成功则返回以只写打开的文件描述符，出错返回`-1`：
 
 - `int creat(const char *path, mode_t mode);`
 
@@ -195,7 +195,7 @@ SUS（Single UNIX Specification）是POSIX.1标准的一个超集，其定义了
 
 ### close
 
-定义在`<unistd.h>`，关闭一个打开的文件：
+定义在`<unistd.h>`，关闭一个打开的文件，成功返回`0`，出错返回`-1`：
 
 - `int close(int fd);`
 
@@ -203,10 +203,40 @@ SUS（Single UNIX Specification）是POSIX.1标准的一个超集，其定义了
 
 ### lseek
 
+每个打开的文件都有一个与其关联的“偏移量”（offset），用以度量从文件开始处计算的字节数，通常为非负整数。读写文件时通常都从当前文件偏移量处开始递增，除非用`open`打开文件时指定`O_APPEND`选项，否则默认偏移量为`0`。
 
+该函数在可显式地为一个打开的文件设置偏移量，其定义在`<unistd.h>`，成功返回新的偏移量，出错返回`-1`：
 
+- `off_t lseek(int fd, off_t offset, int whence);`
 
+`offset`的含义与`whence`相关，`whence`为：
 
+- `SEEK_SET`：设置为从文件开始处的`offset`个字节
+- `SEEK_CUR`：设置为当前开始的`offset`个字节，`offset`可正可负
+- `SEEK_END`：设置为文件长度加`offset`个字节，`offset`可正可负
+
+可以将`offset`设为`0`来确定当前文件的偏移量，这种方法也可以确认文件描述符是否为不可设置偏移量的管道、FIFO或Socket，此时函数返回`-1`，且`errno`被设为`ESPIPE`。
+
+### read
+
+定义在`<unistd.h>`，从打开文件中读数据，返回值为读到的字节数，到末尾时返回`0`，出错返回`-1`：
+
+- `sszie_t read(int fd, void *buf, size_t nbytes);`
+
+实际读取到的字节数小于要求`nbytes`时，可能的情况有：
+
+- 读普通文件，已经到达了文件尾端时返回实际读取的字节数，下一次返回`0`
+- 从终端设备读，一次最多一行
+- 从网络读，缓冲机制会引起这种情况
+- 从管道/FIFO读，返回实际可用字节
+
+### write
+
+定义在`<unistd.h>`，向打开文件中写数据，返回值为已写字节数，出错返回`-1`：
+
+- `sszie_t write(int fd, const void *buf, size_t nbytes);`
+
+### I/O的效率
 
 
 
