@@ -236,7 +236,12 @@ SUS（Single UNIX Specification）是POSIX.1标准的一个超集，其定义了
 
 - `sszie_t write(int fd, const void *buf, size_t nbytes);`
 
-### I/O的效率
+### 文件共享
+
+- 
+
+ 
+
 
 
 
