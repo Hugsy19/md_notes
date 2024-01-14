@@ -60,3 +60,35 @@ OS是应用程序与硬件之间插入的一层软件：
   ```
 
 - 文本数据比二进制数据更具有平台独立性，在使用ASCII码作为字符码的系统上都会有相同的结果
+
+位级运算：
+
+- 异或运算具有`a ^ a = 0`这样的性质，可以根据这个性质实现两个变量的原地交换：
+
+  ```c
+  #include <stdio.h>
+  
+  void inplace_swap(int *x, int *y) {
+  	*y = *x ^ *y;
+      *x = *x ^ *y;
+      *y = *x ^ *y;
+  }
+  
+  int main() {
+      int x = 12306;
+      int y = 12315;
+      inplace_swap(&x, &y);
+      printf("%d %d\n", x, y);
+  }
+  ```
+
+整数表示：
+
+- 补码（Two's complement）：最高有效位的权为负权
+
+- 反码（Ones' complement）：相比补码，最高有效位的权为`-(2^(w-1) - 1)`
+
+- 原码（Sign-Magnitude）：最高有效位是符号位
+
+  
+
