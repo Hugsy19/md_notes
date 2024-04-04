@@ -147,7 +147,7 @@ x86-64架构：
 
 - 2 bytes（16 bites）作为一个字（word）
 - 指令后缀随其操作的数据大小而变：字节（b）、字（w）、双字（l）、四字（q）、单精度（s）、双精度（l）
-- 包含16个64位通用寄存器：%rax（返回值）、%rbx（callee save)、%rcx（参数4）、%rdx（参数3）、%rsi（参数2）、%rdi（参数1）、%rbp（callee save）、%rsp（栈指针）、%r8-r9（参数5-6）、%r10-r11（callee save）、%r12-r15（caller save）
+- 包含16个64位通用寄存器：%rax（返回值）、%rbx（callee save)、%rcx（参数4）、%rdx（参数3）、%rsi（参数2）、%rdi（参数1）、%rbp（callee save）、%rsp（栈指针）、%r8-r9（参数5-6）、%r10-r11（caller save）、%r12-r15（callee save）
 - 
 
 
