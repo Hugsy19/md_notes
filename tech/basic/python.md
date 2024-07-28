@@ -437,8 +437,6 @@ print(list(a1), list(a2))
 # [1, 2, 3] [4, 5, 6]
 ```
 
-
-
 ### 2.4 元组
 
 ```python
@@ -485,8 +483,6 @@ print(rect.height)
 # 20
 ```
 
-
-
 ### 2.5 字典
 
 ```python
@@ -519,28 +515,51 @@ for key, value in alien.items():  # 遍历
     print(f"\nKey: {key}")
     print(f"Value: {value}")
 print("\n")
+# Key: color
+# Value: black
+
+# Key: x_position
+# Value: 0
+
+# Key: y_position
+# Value: 25
 
 for key in alien:  # 默认遍历键
     print(f"{key.title()}")
 print("\n")
+# Color
+# X_Position
+# Y_Position
 
 for key in alien.keys():  # 遍历键
     print(f"{key}")
 print("\n")
+# color
+# x_position
+# y_position
 
 for key in sorted(alien.keys(), reverse=True):  # 顺序遍历键
     print(f"{key}")
 print("\n")
+# y_position
+# x_position
+# color
 
 for value in alien.values():  # 遍历值
     print(f"{value}")
+# black
+# 0
+# 25
 
 d1 = {'foo': 3}
 d2 = {'bar': 4}
 d3 = {**d1, **d2}  # 双星号运算符可解包字典，从而实现字典合并
 #d3 = d1 | d2  # python3.9，可用|实现字典合并
+print(d3)
 d4 = {key: value * 10 for key, value in d3.items() if key == 'foo'}  # 字典推导式
 print(d4)
+# {'foo': 3, 'bar': 4}
+# {'foo': 30}
 
 from collections import OrderedDict  # python3.6之前，可由OrderedDict获得有序字典
 
@@ -549,6 +568,8 @@ d['FIRST_KEY'] = 1
 d['SECOND_KEY'] = 2
 for key in d:
     print(key)
+# FIRST_KEY
+# SECOND_KEY
 
 d3 = {'name': 'piglei', 'fruit': 'apple'}
 d4 = {'fruit': 'apple', 'name': 'piglei'}
@@ -556,41 +577,47 @@ print(d3 == d4)
 d3 = OrderedDict(name='piglei', fruit='apple')  # 会把“键的顺序”作为对比条件
 d4 = OrderedDict(fruit='apple', name='piglei')
 print(d3 == d4)
+# True
+# False
 
 nums = [10, 2, 3, 21, 10, 3]
 print(list(OrderedDict.fromkeys(nums).keys()))  # 可用来去重
+# [10, 2, 3, 21]
 ```
-
-
 
 ### 2.6 集合
 
 ```python
 fruits = {'apple', 'orange', 'apple', 'pineapple'}  # 无序，值唯一的可变容器，底层用哈希表实现
 print(fruits)
+# {'pineapple', 'apple', 'orange'}
 
 empty_set = set()  # 初始化空集合只能用set()，{}表示字典
 
 nums = [1, 2, 2, 4, 1]
 s1 = {n for n in nums if n < 3}  # 集合推导式
 print(s1)
+# {1, 2}
 
 s1.add(3)  # 添加
 s1.remove(2)  # 删除
 print(s1)
+# {1, 3}
 
 fruits_ = {'tomato', 'orange', 'grapes', 'mango'}
 print(fruits & fruits_)  # 交集运算
 print(fruits | fruits_)  # 并集运算
 print(fruits - fruits_)  # 差集运算
+# {'orange'}
+# {'tomato', 'orange', 'pineapple', 'grapes', 'apple', 'mango'}
+# {'pineapple', 'apple'}
 
 valid_set = {'apple', 30, 1.3, ('foo',)}  # 集合中只能存放可哈希的对象
 
 f_set = frozenset(['foo', 'bar', 'foo'])  # 不可变集合
 print(f_set)
+# frozenset({'bar', 'foo'})
 ```
-
-
 
 ### 2.7 生成器
 
@@ -603,9 +630,9 @@ def generate_even(max_number):
 i = generate_even(10)
 print(next(i))  # 通过next从生成器对象中获取结果
 print(next(i))
+# 0
+# 2
 ```
-
-
 
 ### 2.8 建议
 
@@ -648,6 +675,8 @@ from typing import List
 
 print(get_formatted_name("eric", "matthes"))
 print(get_formatted_name(last_name="jimi", first_name="hendrix"))
+# Eric Matthes
+# Hendrix Jimi
 
 
 def greet_users(names: List[str]):  # python3.5，类型注解，不具备类型校验能力
@@ -655,28 +684,28 @@ def greet_users(names: List[str]):  # python3.5，类型注解，不具备类型
         msg = f"Hello, {name.title()}!"
         print(msg)
 
-
 my_names = ["eric", "jimi"]
 greet_users(my_names[:])  # 传递副本以阻止修改
-
+# Hello, Eric!
+# Hello, Jimi!
 
 def make_pizza(*toppings):  # *：建立元组，使函数接受任意数量实参
     print(toppings)
 
-
 make_pizza('pepperoni')
 make_pizza('mushrooms', 'green peppers', 'extra cheese')
-
+# ('pepperoni',)
+# ('mushrooms', 'green peppers', 'extra cheese')
 
 def build_profile(first, last, **user_info):  # **：建立字典，使函数接受任意数量的键值对
     user_info['first_name'] = first
     user_info['last_name'] = last
     return user_info
 
-
 user_profile = build_profile(
     'albert', 'einstein', location='princeton', field='physics')
 print(user_profile)
+# {'location': 'princeton', 'field': 'physics', 'first_name': 'albert', 'last_name': 'einstein'}
 ```
 
 ## 4. 类
@@ -715,7 +744,9 @@ my_new_car.odometer_reading = 23  # 直接修改属性
 my_new_car.update_odometer(100)
 my_new_car.read_odometer()
 my_new_car.fill_gas_tank()
-
+# 2019 Audi A4
+# This car has 100 miles on it.
+# OK!
 
 class Battery:
     def __init__(self, battery_size=75):
@@ -737,6 +768,8 @@ class ElectricCar(Car):  # 继承
 my_tesla = ElectricCar('tesla', 'model s', 2019)
 print(my_tesla.get_descriptive_name())
 my_tesla.fill_gas_tank()
+# 2019 Tesla Model S
+# This car doesn't need a gas tank!
 ```
 
 ## 5. IO与异常
@@ -748,18 +781,29 @@ message = input(
     "Tell me something, and I will repeat it back to you: ")  # 接收输入
 print(message)
 
+# pi_digits.txt
+# 3.1415926535
+#  8979323846
+#  2643383279
 # with可在代码中开辟一段由其管理的上下文，并控制程序进出该上下文时的行为
 with open('pi_digits.txt') as file_object:  # 打开文件
     contents = file_object.read()  # 全部读取
 print(contents)
+# 3.1415926535
+#  8979323846
+#  2643383279
 
 with open('pi_digits.txt') as file_object:
     for line in file_object:  # 逐行读取
         print(line.rstrip())
+# 3.1415926535
+#  8979323846
+#  2643383279
 
 with open('pi_digits.txt') as file_object:
     lines = file_object.readlines()  # 读取为列表
 print(lines)
+# ['3.1415926535\n', ' 8979323846\n', ' 2643383279']
 
 with open('test.txt', 'w') as file_object:  # r：读（默认），w：写，a：附加，r+：读写
     file_object.write("I love programming.")
@@ -785,6 +829,10 @@ def safe_int(value):
 
 safe_int(None)
 print(safe_int(2))
+# type error: <class 'NoneType'> is invalid
+# function completed
+# function completed
+# 2
 
 class DummyContext:
     def __init__(self, name):
@@ -797,6 +845,8 @@ class DummyContext:
 
 with DummyContext('foo') as name:
     print(f'Name: {name}')
+# Name: foo-0.7825652534797632
+# Exiting DummyContext
 
 from contextlib import contextmanager
 
@@ -923,6 +973,7 @@ def magic_bubble_sort(numbers):
 
 numbers = [23, 32, 1, 3, 4, 19, 20, 2, 4]
 print(magic_bubble_sort(numbers))
+# [1, 3, 19, 23, 2, 4, 4, 20, 32]
 ```
 
 改进：
@@ -956,6 +1007,7 @@ def magic_bubble_sort(numbers: List[int]):
 
 numbers = [23, 32, 1, 3, 4, 19, 20, 2, 4]
 print(magic_bubble_sort(numbers))
+# [1, 3, 19, 23, 2, 4, 4, 20, 32]
 ```
 
 ### 7.2 分析访问日志
@@ -1233,5 +1285,11 @@ movies = [
 ]
 
 movie_ranker(movies, 'rating')
+# - [S] The Shawshank Redemption (1994) | rating: 9.3
+# - [S] The Dark Knight(2008) | rating: 9
+# - [A] Citizen Kane(1941) | rating: 8.3
+# - [B] Burning(2018) | rating: 7.5
+# - [B] Kaili Blues(2015) | rating: 7.3
+# - [C] Project Gutenberg(2018) | rating: 6.9
 ```
 
